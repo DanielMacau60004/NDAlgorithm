@@ -1,0 +1,286 @@
+options {
+    STATIC = false;
+    UNICODE_INPUT = true;
+    JAVA_UNICODE_ESCAPE = true;
+}
+
+PARSER_BEGIN(Parser)
+
+package com.logic.parser;
+
+import com.logic.exps.asts.*;
+import com.logic.exps.asts.binary.*;
+import com.logic.exps.asts.unary.*;
+import com.logic.exps.asts.others.*;
+
+import com.logic.exps.exceptions.*;
+import com.logic.nd.asts.*;
+import com.logic.nd.asts.binary.*;
+import com.logic.nd.asts.unary.*;
+import com.logic.nd.asts.others.*;
+
+public class Parser {
+}
+
+PARSER_END(Parser)
+
+<PL, FOL, ND> SKIP : {
+  < RESET: "\r">
+  | < SPACE: " ">
+  | < TAB: ("\t")>
+  | < ENTER: "\n">
+  | < SINGLE_LINE_COMMENT: "//" (~["\n", "\r"])* ("\n" | "\r" | "\r\n") >
+  | < MULTI_LINE_COMMENT: "/*" (~["*"])* "*" (~["/"] (~["*"])* "*")* "/">
+}
+
+//Symbols
+<PL, FOL, ND> TOKEN : {
+    < LPAR : "(" >
+  | < RPAR : ")" >
+  | < TOP: "⊤" >
+  | < BOTTOM: "⊥" >
+  | < NOT: "¬" >
+  | < AND: "∧" >
+  | < OR: "∨" >
+  | < CONDITIONAL: "→" >
+  | < BICONDITIONAL: "↔" >
+  | < GENERIC : ("φ" | "δ" | "ψ" | "α" | "β" | "γ")(["0"-"9"])* >
+  | < DOT : "." >
+  | < LRPAR : "[" >
+  | < RRPAR : "]" >
+  | < LBRA : "{" >
+  | < RBRA : "}" >
+  | < COMMA : "," >
+  | < NUMBER : (["0"-"9"])+ >
+  | < CONSEQUENCE: "⊢">
+  | < COLON: ":">
+}
+
+<PL> TOKEN : {
+  < LITERAL: ["a"-"z"] >
+}
+
+<FOL> TOKEN : {
+  < VARIABLE: ["w"-"z"] (["0"-"9"])* >
+  | < FUNCTION: ["a"-"v"] | ["a"-"z"](["a"-"z", "A"-"Z", "0"-"9"])+ >
+  | < PREDICATE: ["A"-"Z"](["a"-"z", "A"-"Z", "0"-"9"])* >
+  | < UNIVERSAL: "∀" >
+  | < EXISTENTIAL: "∃" >
+}
+
+<ND> TOKEN : {
+    < INEG: "¬I" >
+  | < ENEG: "¬E" >
+  | < ELAND: "∧El" >
+  | < ERAND: "∧Er" >
+  | < IAND: "∧I" >
+  | < ILOR: "∨Il" >
+  | < IROR: "∨Ir" >
+  | < EOR: "∨E" >
+  | < ICOND: "→I" >
+  | < ECOND: "→E" >
+  | < IUNI: "∀I" >
+  | < EUNI: "∀E" >
+  | < IEXIST: "∃I" >
+  | < EEXIST: "∃E" >
+  | < HYPOTHESIS: "H" >
+}
+
+/*
+* Parser for propositional logic expressions
+*/
+
+IASTExp parsePL() : {
+  IASTExp e, e1;
+} {
+  { token_source.curLexState = PL; }
+  e = atomicsPL() (
+    e1 = operationsPL(e) (
+      e = operationsPL(e1) { throw new AmbiguousException(e1, e); }
+      | (<DOT> | <EOF>) { return e1; }
+    )
+    | (<DOT> | <EOF>) { return e; }
+  )
+}
+
+private IASTExp operationsPL(IASTExp e1) : {
+  IASTExp e2;
+} {
+    <AND> e2 = atomicsPL() { return new ASTAnd(e1, e2); }
+  | <OR> e2 = atomicsPL() { return new ASTOr(e1, e2); }
+  | <CONDITIONAL> e2 = atomicsPL() { return new ASTConditional(e1, e2); }
+  | <BICONDITIONAL> e2 = atomicsPL() { return new ASTBiconditional(e1, e2); }
+}
+
+
+private IASTExp atomicsPL() : {
+    Token t;
+    IASTExp e;
+} {
+    <TOP> { return new ASTTop(); }
+  | <BOTTOM> { return new ASTBottom(); }
+  | <NOT> e = atomicsPL() { return new ASTNot(e); }
+  | <LPAR> e = atomicsPL() e = operationsPL(e)
+    (<RPAR> { return new ASTParenthesis(e); }
+    | {throw new MissingParenthesisException(e, getToken(0));})
+  | t = <LITERAL> { return new ASTLiteral(t.image); }
+  | t = <GENERIC> { return new ASTArbitrary(t.image); }
+}
+
+/*
+* Parser for first-order logic expressions
+*/
+
+IASTExp parseFOL() : {
+  IASTExp e, e1;
+} {
+  { token_source.curLexState = FOL; }
+  e = atomicsFOL() (
+    e1 = operationsFOL(e) (
+      e = operationsFOL(e1) { throw new AmbiguousException(e1, e); }
+      | (<DOT> | <EOF>) { return e1; }
+    )
+    | (<DOT> | <EOF>) { return e; }
+  )
+}
+
+private IASTExp operationsFOL(IASTExp e1) : {
+    IASTExp e2;
+} {
+       <AND> e2 = atomicsFOL() { return new ASTAnd(e1, e2); }
+      | <OR> e2 = atomicsFOL() { return new ASTOr(e1, e2); }
+      | <CONDITIONAL> e2 = atomicsFOL() { return new ASTConditional(e1, e2); }
+      | <BICONDITIONAL> e2 = atomicsFOL() { return new ASTBiconditional(e1, e2); }
+}
+
+private IASTExp atomicsFOL() : {
+    Token name, t;
+    IASTExp e, e1;
+    ASTPred pred;
+} {
+    <TOP> { return new ASTTop(); }
+  | <BOTTOM> { return new ASTBottom(); }
+  | <NOT> e = atomicsFOL() { return new ASTNot(e); }
+  | <LPAR> e = atomicsFOL() e = operationsFOL(e)
+    (<RPAR> { return new ASTParenthesis(e); }
+    | {throw new MissingParenthesisException(e, getToken(0));})
+  | t = <GENERIC> { return new ASTArbitrary(t.image); }
+  | <EXISTENTIAL> t = <VARIABLE> {e = new ASTVariable(t.image);} e1 = atomicsFOL() { return new ASTExistential(e, e1); }
+  | <UNIVERSAL> t = <VARIABLE> {e = new ASTVariable(t.image);} e1 = atomicsFOL() { return new ASTUniversal(e, e1); }
+  | name = <PREDICATE> (e = predicateFOL(name.image) {return  e;} | {return new ASTLiteral(name.image); })
+}
+
+private IASTExp predicateFOL(String name) : {
+    IASTExp e;
+    ASTPred pred = new ASTPred(name);
+} {
+    <LPAR> e = termFOL() { pred.addTerm(e); } ( <COMMA> e = termFOL() { pred.addTerm(e); } )*
+        (<RPAR> { return pred; }
+        | {throw new MissingParenthesisException(e, getToken(0));})
+}
+
+private IASTExp termFOL() : {
+   Token t;
+   IASTExp e;
+   ASTFun fun;
+} {
+    t = <VARIABLE> { return new ASTVariable(t.image); }
+  | t = <FUNCTION> (e = functionFOL(t.image) { return e; } | { return new ASTConstant(t.image); })
+}
+
+private IASTExp functionFOL(String name) : {
+    IASTExp e;
+    ASTFun fun = new ASTFun(name);
+} {
+    <LPAR> e = termFOL() { fun.addTerm(e); } (LOOKAHEAD(2) <COMMA> e = termFOL() { fun.addTerm(e); } )*
+        (<RPAR> { return fun; }
+        | {throw new MissingParenthesisException(e, getToken(0));})
+}
+
+/*
+* Parser for propositional logic natural deduction proofs
+*/
+
+IASTND parseNDPL() : {
+    IASTND e;
+} {
+    {token_source.curLexState = PL;}
+    e = proofNDPL() <EOF> { return e; }
+}
+
+private IASTND proofNDPL() : {
+     IASTExp exp;
+     IASTND n1, n2, n3;
+     Token m = null, n = null;
+     token_source.curLexState = ND;
+} {
+
+    <LRPAR>(
+        <IAND> <RRPAR> <LRPAR> exp = parsePL() n1 = proofNDPL() n2 = proofNDPL() <RRPAR>{ return new ASTIConj(n1, n2, exp); }
+        | <ELAND> <RRPAR> <LRPAR> exp = parsePL() n1 = proofNDPL() <RRPAR> { return new ASTELConj(n1, exp); }
+        | <ERAND> <RRPAR> <LRPAR> exp = parsePL() n1 = proofNDPL() <RRPAR> { return new ASTERConj(n1, exp); }
+        | <ECOND> <RRPAR> <LRPAR> exp = parsePL() n1 = proofNDPL() n2 = proofNDPL() <RRPAR> { return new ASTEImp(n1, n2, exp); }
+        | <ILOR> <RRPAR> <LRPAR> exp = parsePL() n1 = proofNDPL() <RRPAR> { return new ASTILDis(n1, exp); }
+        | <IROR> <RRPAR> <LRPAR> exp = parsePL() n1 = proofNDPL() <RRPAR> { return new ASTIRDis(n1, exp); }
+        | <INEG> <COMMA> [m = <NUMBER>] <RRPAR> <LRPAR> exp = parsePL() n1 = proofNDPL() <RRPAR>
+        { return new ASTINeg(n1, exp, m != null ? m.toString() : null); }
+        | <ENEG> <RRPAR> <LRPAR> exp = parsePL() n1 = proofNDPL() n2 = proofNDPL() <RRPAR> { return new ASTENeg(n1, n2, exp); }
+        | <EOR> <COMMA> [m = <NUMBER>] <COMMA> [n = <NUMBER>] <RRPAR> <LRPAR> exp = parsePL() n1 = proofNDPL() n2 = proofNDPL() n3 = proofNDPL() <RRPAR>
+            { return new ASTEDis(n1, n2, n3, exp, m != null ? m.toString() : null, n != null ? n.toString() : null);}
+        | <ICOND> <COMMA> [m = <NUMBER>] <RRPAR> <LRPAR> exp = parsePL() n1 = proofNDPL() <RRPAR>
+        {return new ASTIImp(n1, exp, m != null ? m.toString() : null); }
+        | <BOTTOM> <COMMA> [m = <NUMBER>] <RRPAR> <LRPAR> exp = parsePL() n1 = proofNDPL() <RRPAR>
+        {return new ASTAbsurdity(n1, exp, m != null ? m.toString() : null); }
+        | <HYPOTHESIS> <COMMA> [m = <NUMBER>] <RRPAR> <LRPAR> exp = parsePL() <RRPAR>
+        {return new ASTHypothesis(exp, m != null ? m.toString() : null);}
+    ) | {throw new RuntimeException("Incomplete proof!");}
+
+}
+
+/*
+* Parser for first-order logic natural deduction proofs
+*/
+
+IASTND parseNDFOL() : {
+    IASTND e;
+} {
+    {token_source.curLexState = FOL;}
+    e = proofNDFOL() <EOF> { return e; }
+}
+
+private IASTND proofNDFOL() : {
+     IASTExp exp;
+     IASTND n1, n2, n3;
+     Token m = null, n = null;
+     token_source.curLexState = ND;
+} {
+
+    <LRPAR>(
+        <IAND> <RRPAR> <LRPAR> exp = parseFOL() n1 = proofNDFOL() n2 = proofNDFOL() <RRPAR>{ return new ASTIConj(n1, n2, exp); }
+        | <ELAND> <RRPAR> <LRPAR> exp = parseFOL() n1 = proofNDFOL() <RRPAR> { return new ASTELConj(n1, exp); }
+        | <ERAND> <RRPAR> <LRPAR> exp = parseFOL() n1 = proofNDFOL() <RRPAR> { return new ASTERConj(n1, exp); }
+        | <ECOND> <RRPAR> <LRPAR> exp = parseFOL() n1 = proofNDFOL() n2 = proofNDFOL() <RRPAR> { return new ASTEImp(n1, n2, exp); }
+        | <ILOR> <RRPAR> <LRPAR> exp = parseFOL() n1 = proofNDFOL() <RRPAR> { return new ASTILDis(n1, exp); }
+        | <IROR> <RRPAR> <LRPAR> exp = parseFOL() n1 = proofNDFOL() <RRPAR> { return new ASTIRDis(n1, exp); }
+        | <INEG> <COMMA> [m = <NUMBER>] <RRPAR> <LRPAR> exp = parseFOL() n1 = proofNDFOL() <RRPAR>
+        { return new ASTINeg(n1, exp, m != null ? m.toString() : null); }
+        | <ENEG> <RRPAR> <LRPAR> exp = parseFOL() n1 = proofNDFOL() n2 = proofNDFOL() <RRPAR> { return new ASTENeg(n1, n2, exp); }
+        | <EOR> <COMMA> [m = <NUMBER>] <COMMA> [n = <NUMBER>] <RRPAR> <LRPAR> exp = parseFOL() n1 = proofNDFOL() n2 = proofNDFOL() n3 = proofNDFOL() <RRPAR>
+            { return new ASTEDis(n1, n2, n3, exp, m != null ? m.toString() : null, n != null ? n.toString() : null);}
+        | <ICOND> <COMMA> [m = <NUMBER>] <RRPAR> <LRPAR> exp = parseFOL() n1 = proofNDFOL() <RRPAR>
+        {return new ASTIImp(n1, exp, m != null ? m.toString() : null); }
+        | <BOTTOM> <COMMA> [m = <NUMBER>] <RRPAR> <LRPAR> exp = parseFOL() n1 = proofNDFOL() <RRPAR>
+        {return new ASTAbsurdity(n1, exp, m != null ? m.toString() : null); }
+        | <EUNI> <RRPAR> <LRPAR> exp = parseFOL() n1 = proofNDFOL() <RRPAR> { return new ASTEUni(n1, exp); }
+        | <IEXIST> <RRPAR> <LRPAR> exp = parseFOL() n1 = proofNDFOL() <RRPAR> { return new ASTIExist(n1, exp); }
+        | <IUNI> <RRPAR> <LRPAR> exp = parseFOL() n1 = proofNDFOL() <RRPAR> { return new ASTIUni(n1, exp); }
+        | <EEXIST> <COMMA> [m = <NUMBER>] <RRPAR> <LRPAR> exp = parseFOL() n1 = proofNDFOL() n2 = proofNDFOL() <RRPAR>
+        { return new ASTEExist(n1, n2, exp, m != null ? m.toString() : null); }
+        | <HYPOTHESIS> <COMMA> [m = <NUMBER>] <RRPAR> <LRPAR> exp = parseFOL() <RRPAR>
+        {return new ASTHypothesis(exp, m != null ? m.toString() : null);}
+    ) | {throw new RuntimeException("Incomplete proof!");}
+
+}
+
+
+
