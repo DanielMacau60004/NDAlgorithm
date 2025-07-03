@@ -37,6 +37,8 @@ Rules appear on the left along with marks, followed by the conclusion and then t
 			[∧El] [¬b.
 				[H,4] [¬r ∧ ¬b.]]]]]
 ```
+Which maps to this tree:
+![Alt text](example.png)
 
 # Examples of proofs
 
